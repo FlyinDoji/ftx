@@ -14,24 +14,37 @@ class FtxAuthTestCase(TestCase):
         self.subaccount = 'test subaccount'
         self.url = 'https://test-url.com/api/'
         self.endpoint = 'test-endpoint'
-        self.timestamp = 1606765690995
-        self.parameters = dict()
-        self.request = Request('GET', f'{self.url}{self.endpoint}', self.parameters)
+        self.timestamp = 1607195350.5327864
+        self.timestamp_ms = 1607195350532
+        self.request = Request('GET', f'{self.url}{self.endpoint}')
+        self.prepared = self.request.prepare()
+    
+    @patch('time.time')
+    def test_auth_get_signature(self, mocked_timestamp):
+        mocked_timestamp.return_value = self.timestamp
+        expected_signature = "1d278131ecc4284904dc8afd1d0fae9f2d056a64fac0450300f9439c3cd8821f"
+        expected_timestamp = str(self.timestamp_ms)
         
-    def test_auth_get_signature(self):
         auth = FtxAuth(self.key,self.secret)
-        expected_signature = "46aeefae43a28c9c1a1f8fd95614cd0d4867c8d2b0ee3b40c17741173dc84c2b"
+        payload = f'{self.prepared.method}{self.prepared.path_url}'.encode()
+        timestamp, signature = auth.get_signature(payload)
         
-        self.assertEqual(auth.get_signature(self.request, self.timestamp), expected_signature)
+        self.assertEqual(timestamp, expected_timestamp)
+        self.assertEqual(signature, expected_signature)
 
-    def test_auth_sign(self):
+    @patch('time.time')
+    def test_auth_sign(self, mocked_timestamp):
+        mocked_timestamp.return_value = self.timestamp
+        expected_signature = "1d278131ecc4284904dc8afd1d0fae9f2d056a64fac0450300f9439c3cd8821f"
+        expected_timestamp = str(self.timestamp_ms)
+
         auth = FtxAuth(self.key, self.secret, self.subaccount)
-        request = self.request
-        auth.sign(request)
+        signed = auth.sign_http_request(self.request)
 
-        self.assertEqual(request.headers['FTX-KEY'], self.key)
-        self.assertEqual(request.headers['FTX-SIGN'], auth.get_signature(self.request, request.headers['FTX-TS']))
-        self.assertEqual(request.headers['FTX-SUBACCOUNT'], parse.quote(self.subaccount))
+        self.assertEqual(signed.headers['FTX-KEY'], self.key)
+        self.assertEqual(signed.headers['FTX-SIGN'], expected_signature)
+        self.assertEqual(signed.headers['FTX-SUBACCOUNT'], parse.quote(self.subaccount))
+        self.assertEqual(signed.headers['FTX-TS'], expected_timestamp)
 
 
 class FtxClientTestCase(TestCase):
@@ -39,43 +52,45 @@ class FtxClientTestCase(TestCase):
     @patch.object(Session, 'send')
     def test_client__request(self, mock_session):
         mock_session.return_value.status_code = 200
-
         client = FtxClient()
-        self.assertEqual(client._request('GET', '/').status_code, 200)
+        self.assertEqual(client._request('GET', '/', params={}).status_code, 200)
 
     # Test exception raising from response with bad code
-    @patch.object(Response, 'json')
-    @patch.object(Response, 'raise_for_status')
-    def test_client__response_HTTPError(self, mock_response_json, mock_response_raise_for_status):
-        mock_response_json.side_effect = ValueError()
-        mock_response_raise_for_status.side_effect = HTTPError()
+    def test_client__response_HTTPError(self):
+        response = Response()
+        response.status_code = 400
         client = FtxClient()
-        self.assertRaises(HTTPError, client._response, response=Response())
+        self.assertRaises(HTTPError, client._response, response=response)
 
     # Test exception raising from authentication error
     @patch.object(Response, 'json')
     def test_client__response_AuthError(self, mock_response_json):
         mock_response_json.return_value = {'success': None, 'error': 'Not logged in'}
+        response = Response()
+        response.status_code = 400
         client = FtxClient()
-        self.assertRaises(AuthError, client._response, response=Response())
+        self.assertRaises(AuthError, client._response, response=response)
 
     # Test exception raising from api error
     @patch.object(Response, 'json')
     def test_client__response_ApiError(self, mock_response_json):
         mock_response_json.return_value = {'success': None, 'error': 'Anything else'}
         client = FtxClient()
-        self.assertRaises(ApiError, client._response, response=Response())
+        response = Response()
+        response.status_code = 400
+        self.assertRaises(ApiError, client._response, response=response)
 
     @patch.object(Response, 'json')
     def test_client__response(self, mock_response_json):
-        data = 'success'
-        mock_response_json.return_value = {'success': True, 'result': data}
+        mock_response_json.return_value = {'success': True, 'result': 'data'}
+        response = Response()
+        response.status_code = 200
         client = FtxClient()
-        self.assertEqual(client._response(Response()), data)
+        self.assertEqual(client._response(response), 'data')
 
     # FtxClient._get() is only a wrapper
     @patch.object(FtxClient, '_request')
     def test_client__get(self, mock_client__request):
-        mock_client__request.return_value.json = lambda : {'success':True, 'result':'data'}
+        mock_client__request.return_value.json = lambda : {'success': True, 'result': 'data'}
         client = FtxClient()
         self.assertEqual(client._get('/'), 'data')
