@@ -5,26 +5,27 @@ from urllib import parse
 from typing import Dict, List, Tuple, Any
 from requests import Request, Session, Response, HTTPError, PreparedRequest
 
+
 class ApiError(Exception):
     pass
+
 
 class AuthError(ApiError):
     pass
 
 
 class FtxAuth(object):
-
     def __init__(self, key: str = '', secret: str = '', subaccount: str = '') -> None:
         self._key = key
         self._secret = secret
         self._subaccount = subaccount
 
     # Signs encoded payloads and returns milisecond timestamp and signature
-    def get_signature(self, payload:bytes) -> Tuple[str, str]:
+    def get_signature(self, payload: bytes) -> Tuple[str, str]:
         # Timestamp in miliseconds
         timestamp = str(int(time.time() * 1000))
         return timestamp, hmac.new(self._secret.encode(), timestamp.encode() + payload, 'sha256').hexdigest()
-    
+
     # Takes a Request and returns a PreparedRequest with appropriate headers
     def sign_http_request(self, request: Request) -> PreparedRequest:
         prepared = request.prepare()
@@ -62,13 +63,13 @@ class FtxClient(object):
         return self._auth
 
     @auth.setter
-    def auth(self, auth:FtxAuth):
+    def auth(self, auth: FtxAuth):
         if not isinstance(auth, FtxAuth):
             raise ValueError(f'auth is not {FtxAuth} type: {type(auth)}')
         self._auth = auth
 
     # Creates and signs a Request to be sent to the server
-    def _request(self, method: str, endpoint: str, params:Dict) -> Response:
+    def _request(self, method: str, endpoint: str, params: Dict) -> Response:
         req = Request(method, f'{FtxClient._ROOT}{endpoint}', params=params)
         signed = self._auth.sign_http_request(req)
         return self._session.send(signed)
@@ -79,7 +80,7 @@ class FtxClient(object):
             response.raise_for_status()
         except HTTPError:
             # Check if error message is present, client problem probably
-            try:    
+            try:
                 data = response.json()
                 if data['error'] == 'Not logged in':
                     raise AuthError(f'Auth error with {self.auth}')
@@ -88,7 +89,7 @@ class FtxClient(object):
             # Server did not return any response, server might be busy
             except ValueError:
                 raise HTTPError
-            
+
         return response.json()['result']
 
     # Wrapper for client methods that use GET
@@ -135,8 +136,7 @@ class FtxClient(object):
     def get_positions(self, show_avg_price: bool = False) -> List[Dict]:
         return self._get('positions', {'showAvgPrice': show_avg_price})
 
-    def get_fills(self, market: str = None, start_time: float = None,
-                  end_time: float = None, limit: int = None) -> List[Dict]:
+    def get_fills(self, market: str = None, start_time: float = None, end_time: float = None, limit: int = None) -> List[Dict]:
         params = {}
         if market:
             params['market'] = market
